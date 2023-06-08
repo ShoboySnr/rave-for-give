@@ -107,8 +107,6 @@ class Frontend {
             } else {
                 //Begin processing payment
                 $get_payment_url = $this->get_payment_link( $payment_data );
-                var_dump($get_payment_url);
-                exit;
     
                 if ( isset( $get_payment_url->status ) && 'success' === $get_payment_url->status ) {
                     // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
@@ -153,12 +151,10 @@ class Frontend {
             'Content-Type'  => 'application/json',
             'Authorization' => 'Bearer ' . $secret_key,
         );
-        var_dump($secret_key);
-        exit;
     
         $body = array(
             'tx_ref'        => $ref,
-            'amount'        => $payment_data['price'] * 100,
+            'amount'        => $payment_data['price'],
             'currency'      => $currency,
             'customer'      => array(
                 'name'          => $payment_data['first_name'] . ' ' . $payment_data['last_name'],
