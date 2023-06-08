@@ -1,0 +1,8 @@
+/**
+ * All of the CSS for your admin-specific functionality should be
+ * included in this file.
+ */
+
+.give-settings-rave-give-section .give-rave-check-mode {
+    display: none;
+}
