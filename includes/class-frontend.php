@@ -8,8 +8,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class Frontend {
-    
-    private $api_query_var = 'rave-give-api';
 
     public function __construct()
     {
@@ -22,6 +20,7 @@ class Frontend {
         add_filter('give_payment_gateways', array( $this, 'give_rave_register_gateway' ), 1);
         add_action('give_gateway_rave-give', array( $this, 'give_process_rave_purchase') );
         add_action('give_rave-give_cc_form', array($this, 'give_rave_credit_card_form'), 10, 2 );
+        add_action('parse_request', array($this, 'handle_api_requests'), 0);
     }
     
     /**
@@ -125,25 +124,100 @@ class Frontend {
         }
     }
     
+    /**
+     * Handle the callback request from flutterwave
+     */
+    public function handle_api_requests() {
+        if(!empty($_GET['give-listener']) && $_GET['give-listener'] == 'rave' && !empty($_GET['transaction_id']) && !empty($_GET['tx_ref'])) {
+            
+            $reference = sanitize_text_field( $_GET['tx_ref'] );
     
+            $rave_txn_id = sanitize_text_field( $_REQUEST['transaction_id'] );
+    
+            $payment = give_get_payment_by('key', $reference);
+    
+            $transaction = $this->verify_transaction($reference, $rave_txn_id);
+    
+            if ( isset( $transaction->status ) && 'success' === $transaction->status ) {
+        
+                // transaction is successful, so update payment as success
+                give_update_payment_status($payment->ID, 'complete');
+    
+                wp_redirect(give_get_success_page_uri());
+            } else {
+                // the transaction was not successful, do not deliver value'
+                give_update_payment_status($payment->ID, 'failed');
+                
+                give_insert_payment_note($payment, 'ERROR: ' . $transaction->data->message);
+                
+                echo json_encode(
+                    [
+                        'status' => 'not-given',
+                        'message' => "Transaction was not successful: Flutterwave gateway response was: " . $transaction->data->message,
+                    ]
+                );
+                wp_redirect(give_get_failed_transaction_uri());
+            }
+        } else {
+            // send back to failed transaction
+            wp_redirect(give_get);
+        }
+    }
+    
+    
+    /**
+     * Verify Transaction
+     *
+     */
+    public function verify_transaction($ref, $rave_txn_id) {
+        $payment = give_get_payment_by('key', $ref);
+        
+        if($payment === false) {
+            die('not a valid transaction reference');
+        }
+        
+        $secret_key = give_get_option('rave_live_secret_key');
+        if(give_is_test_mode()) {
+            $secret_key = give_get_option('rave_test_secret_key');
+        }
+    
+        $api_url = "https://api.flutterwave.com/v3/transactions/$rave_txn_id/verify";
+    
+        $headers = array(
+            'Content-Type'  => 'application/json',
+            'Authorization' => 'Bearer ' . $secret_key,
+        );
+    
+        $args = array(
+            'headers' => $headers,
+            'timeout' => 60,
+        );
+    
+        $request = wp_remote_get( $api_url, $args );
+    
+        return json_decode( wp_remote_retrieve_body( $request ) );
+    }
+    
+    
+    /**
+     * Get the payment returned from flutterwave
+     *
+     * @param $payment_data
+     * @return mixed
+     */
     public function get_payment_link( $payment_data ) {
+        
+        $public_key = give_get_option('rave_live_public_key');
+        $secret_key = give_get_option('rave_live_secret_key');
         if (give_is_test_mode()) {
             $public_key = give_get_option('rave_test_public_key');
             $secret_key = give_get_option('rave_test_secret_key');
-        } else {
-            $public_key = give_get_option('rave_live_public_key');
-            $secret_key = give_get_option('rave_live_secret_key');
         }
     
         $ref = $payment_data['purchase_key']; // . '-' . time() . '-' . preg_replace("/[^0-9a-z_]/i", "_", $purchase_data['user_email']);
         $currency = give_get_currency();
     
-        $verify_url = home_url(). '?'. http_build_query(
-                [
-                    $this->api_query_var => 'verify',
-                    'reference' => $ref
-                ]
-            );
+        $verify_url = add_query_arg( 'give-listener', 'rave', home_url( 'index.php' ) );
     
         $api_url = 'https://api.flutterwave.com/v3/payments';
     
